@@ -1,0 +1,81 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<class name="MCPServer" inherits="Object" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="../../../doc/class.xsd">
+	<brief_description>
+		Model Context Protocol (MCP) server for AI-assisted development.
+	</brief_description>
+	<description>
+		MCPServer implements the Model Context Protocol (JSON-RPC 2.0) allowing AI tools like Claude Code to connect to and control the Godot editor. It supports both WebSocket and stdio transports.
+		The server exposes tools for scene manipulation, script editing, project management, and more through the MCP tools interface.
+	</description>
+	<tutorials>
+	</tutorials>
+	<methods>
+		<method name="start_websocket">
+			<return type="int" enum="Error" />
+			<param index="0" name="port" type="int" />
+			<param index="1" name="bind_host" type="String" default="&quot;127.0.0.1&quot;" />
+			<description>
+				Starts the MCP server in WebSocket mode on the specified port.
+			</description>
+		</method>
+		<method name="start_stdio">
+			<return type="int" enum="Error" />
+			<description>
+				Starts the MCP server in stdio mode, reading from stdin and writing to stdout.
+			</description>
+		</method>
+		<method name="stop">
+			<return type="void" />
+			<description>
+				Stops the MCP server and disconnects all clients.
+			</description>
+		</method>
+		<method name="poll">
+			<return type="void" />
+			<param index="0" name="limit_usec" type="int" default="0" />
+			<description>
+				Polls the server for incoming messages. Called automatically when running as an editor plugin.
+			</description>
+		</method>
+		<method name="is_running">
+			<return type="bool" />
+			<description>
+				Returns whether the MCP server is currently running.
+			</description>
+		</method>
+		<method name="register_tool">
+			<return type="void" />
+			<param index="0" name="name" type="String" />
+			<param index="1" name="description" type="String" />
+			<param index="2" name="input_schema" type="Dictionary" />
+			<param index="3" name="handler" type="Callable" />
+			<description>
+				Registers a custom tool that can be called by MCP clients. The handler callable should accept a Dictionary of arguments and return a Dictionary result.
+			</description>
+		</method>
+		<method name="unregister_tool">
+			<return type="void" />
+			<param index="0" name="name" type="String" />
+			<description>
+				Unregisters a previously registered tool.
+			</description>
+		</method>
+		<method name="get_tool_list">
+			<return type="Dictionary[]" />
+			<description>
+				Returns an array of dictionaries describing all registered tools.
+			</description>
+		</method>
+	</methods>
+	<constants>
+		<constant name="TRANSPORT_NONE" value="0" enum="TransportMode">
+			No transport active.
+		</constant>
+		<constant name="TRANSPORT_STDIO" value="1" enum="TransportMode">
+			stdio transport (stdin/stdout).
+		</constant>
+		<constant name="TRANSPORT_WEBSOCKET" value="2" enum="TransportMode">
+			WebSocket transport.
+		</constant>
+	</constants>
+</class>

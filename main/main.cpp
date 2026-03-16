@@ -42,6 +42,7 @@
 #include "core/input/input.h"
 #include "core/input/input_map.h"
 #include "core/io/dir_access.h"
+#include "core/io/structured_logger.h"
 #include "core/io/file_access_pack.h"
 #include "core/io/file_access_zip.h"
 #include "core/io/image.h"
@@ -143,7 +144,12 @@
 #include "main/steam_tracker.h"
 #endif
 
-#include "modules/modules_enabled.gen.h" // For mono.
+#include "modules/modules_enabled.gen.h" // For mono and mcp_server.
+
+#ifdef MODULE_MCP_SERVER_ENABLED
+#include "modules/mcp_server/mcp_cli.h"
+#include "modules/mcp_server/mcp_server.h"
+#endif
 
 #if defined(MODULE_MONO_ENABLED) && defined(TOOLS_ENABLED)
 #include "modules/mono/editor/bindings_generator.h"
@@ -236,6 +242,42 @@ static int converter_max_line_length = 100000;
 HashMap<Main::CLIScope, Vector<String>> forwardable_cli_arguments;
 #endif
 static bool single_threaded_scene = false;
+
+// AI / MCP options.
+static bool structured_output = false;
+static bool mcp_stdio = false;
+static int mcp_port = -1;
+
+// AI CLI commands (one-shot, run and exit).
+static bool cli_validate_scripts = false;
+static bool cli_lint_gdscript = false;
+static bool cli_dump_api_json = false;
+static String cli_dump_api_json_path;
+static bool cli_export_scene_json = false;
+static String cli_export_scene_json_source;
+static String cli_export_scene_json_target;
+static bool cli_import_scene_json = false;
+static String cli_import_scene_json_source;
+static String cli_import_scene_json_target;
+static bool cli_list_scenes = false;
+static bool cli_list_scripts = false;
+static bool cli_list_resources = false;
+static bool cli_scene_info = false;
+static String cli_scene_info_path;
+static bool cli_script_info = false;
+static String cli_script_info_path;
+static bool cli_project_info = false;
+static bool cli_create_node_cmd = false;
+static String cli_create_node_args;
+static bool cli_query = false;
+static String cli_query_expr;
+
+static bool _has_mcp_cli_command() {
+	return cli_validate_scripts || cli_lint_gdscript || cli_dump_api_json ||
+			cli_project_info || cli_list_scenes || cli_list_scripts ||
+			cli_list_resources || cli_scene_info || cli_script_info ||
+			cli_export_scene_json || cli_import_scene_json || cli_query;
+}
 
 // Display
 
@@ -627,6 +669,25 @@ void Main::print_help(const char *p_binary) {
 	print_help_option("", "--fixed-fps is forced when enabled, but it can be used to change movie FPS.\n");
 	print_help_option("", "--disable-vsync can speed up movie writing but makes interaction more difficult.\n");
 	print_help_option("", "--quit-after can be used to specify the number of frames to write.\n");
+
+	print_help_title("AI / MCP options");
+	print_help_option("--structured-output", "Output all logs and errors as JSON Lines (one JSON object per line).\n");
+	print_help_option("--mcp-stdio", "Start MCP server using stdin/stdout transport (for AI tool integration).\n");
+	print_help_option("--mcp-port <port>", "Start MCP server using WebSocket transport on the specified port.\n");
+
+	print_help_title("AI CLI commands (use with --headless --path <project>)");
+	print_help_option("--validate-scripts", "Validate all GDScript files and output results as JSON.\n");
+	print_help_option("--lint-gdscript", "Run GDScript linter on all scripts and output diagnostics as JSON.\n");
+	print_help_option("--dump-api-json <file>", "Export all engine class API documentation to a JSON file.\n");
+	print_help_option("--project-info", "Output project information as JSON (settings, file counts, scenes).\n");
+	print_help_option("--list-scenes", "List all .tscn/.scn scene files in the project as JSON.\n");
+	print_help_option("--list-scripts", "List all .gd script files in the project as JSON.\n");
+	print_help_option("--list-resources", "List all resource files in the project as JSON.\n");
+	print_help_option("--scene-info <scene.tscn>", "Output detailed scene structure as JSON.\n");
+	print_help_option("--script-info <script.gd>", "Output script symbols (functions, variables, signals) as JSON.\n");
+	print_help_option("--export-scene-json <in.tscn> <out.json>", "Convert a .tscn scene file to JSON format.\n");
+	print_help_option("--import-scene-json <in.json> <out.tscn>", "Convert a JSON scene file to .tscn format.\n");
+	print_help_option("--query <expression>", "Query the project (e.g. \"get_all_nodes_of_type(CharacterBody3D)\").\n");
 
 	print_help_title("Display options");
 	print_help_option("-f, --fullscreen", "Request fullscreen mode.\n");
@@ -1481,6 +1542,119 @@ Error Main::setup(const char *execpath, int argc, char *argv[], bool p_second_ph
 			OS::get_singleton()->print("--embedded is only supported on macOS, aborting.\n");
 			goto error;
 #endif
+		} else if (arg == "--structured-output") {
+			structured_output = true;
+
+		} else if (arg == "--mcp-stdio") {
+			mcp_stdio = true;
+
+		} else if (arg == "--mcp-port") {
+			if (N) {
+				mcp_port = N->get().to_int();
+				N = N->next();
+			} else {
+				OS::get_singleton()->print("Missing MCP port argument, aborting.\n");
+				goto error;
+			}
+
+		} else if (arg == "--validate-scripts") {
+			cli_validate_scripts = true;
+			cmdline_tool = true;
+
+		} else if (arg == "--lint-gdscript") {
+			cli_lint_gdscript = true;
+			cmdline_tool = true;
+
+		} else if (arg == "--dump-api-json") {
+			if (N) {
+				cli_dump_api_json = true;
+				cli_dump_api_json_path = N->get();
+				N = N->next();
+				cmdline_tool = true;
+			} else {
+				OS::get_singleton()->print("Missing output file path, aborting.\n");
+				goto error;
+			}
+
+		} else if (arg == "--project-info") {
+			cli_project_info = true;
+			cmdline_tool = true;
+
+		} else if (arg == "--list-scenes") {
+			cli_list_scenes = true;
+			cmdline_tool = true;
+
+		} else if (arg == "--list-scripts") {
+			cli_list_scripts = true;
+			cmdline_tool = true;
+
+		} else if (arg == "--list-resources") {
+			cli_list_resources = true;
+			cmdline_tool = true;
+
+		} else if (arg == "--scene-info") {
+			if (N) {
+				cli_scene_info = true;
+				cli_scene_info_path = N->get();
+				N = N->next();
+				cmdline_tool = true;
+			} else {
+				OS::get_singleton()->print("Missing scene path, aborting.\n");
+				goto error;
+			}
+
+		} else if (arg == "--script-info") {
+			if (N) {
+				cli_script_info = true;
+				cli_script_info_path = N->get();
+				N = N->next();
+				cmdline_tool = true;
+			} else {
+				OS::get_singleton()->print("Missing script path, aborting.\n");
+				goto error;
+			}
+
+		} else if (arg == "--export-scene-json") {
+			if (N) {
+				cli_export_scene_json = true;
+				cli_export_scene_json_source = N->get();
+				N = N->next();
+				if (N) {
+					cli_export_scene_json_target = N->get();
+					N = N->next();
+				}
+				cmdline_tool = true;
+			} else {
+				OS::get_singleton()->print("Missing scene path, aborting.\n");
+				goto error;
+			}
+
+		} else if (arg == "--import-scene-json") {
+			if (N) {
+				cli_import_scene_json = true;
+				cli_import_scene_json_source = N->get();
+				N = N->next();
+				if (N) {
+					cli_import_scene_json_target = N->get();
+					N = N->next();
+				}
+				cmdline_tool = true;
+			} else {
+				OS::get_singleton()->print("Missing JSON path, aborting.\n");
+				goto error;
+			}
+
+		} else if (arg == "--query") {
+			if (N) {
+				cli_query = true;
+				cli_query_expr = N->get();
+				N = N->next();
+				cmdline_tool = true;
+			} else {
+				OS::get_singleton()->print("Missing query expression, aborting.\n");
+				goto error;
+			}
+
 		} else if (arg == "--log-file") { // write to log file
 
 			if (N) {
@@ -2288,9 +2462,20 @@ Error Main::setup(const char *execpath, int argc, char *argv[], bool p_second_ph
 		OS::get_singleton()->add_logger(memnew(RotatedFileLogger(base_path, max_files)));
 	}
 
+	if (structured_output) {
+		// Replace the default logger with structured JSON logger.
+		Vector<Logger *> loggers;
+		loggers.push_back(memnew(StructuredLogger));
+		OS::get_singleton()->_set_logger(memnew(CompositeLogger(loggers)));
+	}
+
 	if (main_args.is_empty() && String(GLOBAL_GET("application/run/main_scene")) == "") {
 #ifdef TOOLS_ENABLED
-		if (!editor && !project_manager) {
+		if (!editor && !project_manager
+#ifdef MODULE_MCP_SERVER_ENABLED
+				&& !_has_mcp_cli_command() && !mcp_stdio && mcp_port <= 0
+#endif
+		) {
 #endif
 			const String error_msg = "Error: Can't run project: no main scene defined in the project.\n";
 			OS::get_singleton()->print("%s", error_msg.utf8().get_data());
@@ -2986,7 +3171,13 @@ Error Main::setup2(bool p_show_boot_logo) {
 	set_current_thread_safe_for_nodes(true);
 
 	// Don't use rich formatting to prevent ANSI escape codes from being written to log files.
-	print_header(false);
+#ifdef MODULE_MCP_SERVER_ENABLED
+	if (!_has_mcp_cli_command()) {
+#endif
+		print_header(false);
+#ifdef MODULE_MCP_SERVER_ENABLED
+	}
+#endif
 
 #ifdef TOOLS_ENABLED
 	int accessibility_mode_editor = 0;
@@ -3964,6 +4155,41 @@ int Main::start() {
 
 	ERR_FAIL_COND_V(!_start_success, EXIT_FAILURE);
 
+	// AI CLI commands (one-shot, run and exit).
+#ifdef MODULE_MCP_SERVER_ENABLED
+	{
+		int cli_ret = -1;
+		if (cli_validate_scripts) {
+			cli_ret = MCPCli::cmd_validate_scripts();
+		} else if (cli_lint_gdscript) {
+			cli_ret = MCPCli::cmd_lint_gdscript();
+		} else if (cli_dump_api_json) {
+			cli_ret = MCPCli::cmd_dump_api_json(cli_dump_api_json_path);
+		} else if (cli_project_info) {
+			cli_ret = MCPCli::cmd_project_info();
+		} else if (cli_list_scenes) {
+			cli_ret = MCPCli::cmd_list_scenes();
+		} else if (cli_list_scripts) {
+			cli_ret = MCPCli::cmd_list_scripts();
+		} else if (cli_list_resources) {
+			cli_ret = MCPCli::cmd_list_resources();
+		} else if (cli_scene_info) {
+			cli_ret = MCPCli::cmd_scene_info(cli_scene_info_path);
+		} else if (cli_script_info) {
+			cli_ret = MCPCli::cmd_script_info(cli_script_info_path);
+		} else if (cli_export_scene_json) {
+			cli_ret = MCPCli::cmd_export_scene_json(cli_export_scene_json_source, cli_export_scene_json_target);
+		} else if (cli_import_scene_json) {
+			cli_ret = MCPCli::cmd_import_scene_json(cli_import_scene_json_source, cli_import_scene_json_target);
+		} else if (cli_query) {
+			cli_ret = MCPCli::cmd_query(cli_query_expr);
+		}
+		if (cli_ret >= 0) {
+			return cli_ret;
+		}
+	}
+#endif
+
 	bool has_icon = false;
 	String positional_arg;
 	String game_path;
@@ -4827,6 +5053,21 @@ int Main::start() {
 		uint64_t elapsed_time = OS::get_singleton()->get_ticks_usec();
 		if (elapsed_time < minimum_time) {
 			OS::get_singleton()->delay_usec(minimum_time - elapsed_time);
+		}
+	}
+#endif
+
+	// Start MCP server if requested via command line.
+#ifdef MODULE_MCP_SERVER_ENABLED
+	if (mcp_stdio) {
+		MCPServer *mcp = MCPServer::get_singleton();
+		if (mcp) {
+			mcp->start_stdio();
+		}
+	} else if (mcp_port > 0) {
+		MCPServer *mcp = MCPServer::get_singleton();
+		if (mcp) {
+			mcp->start_websocket(mcp_port);
 		}
 	}
 #endif
