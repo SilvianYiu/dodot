@@ -71,6 +71,7 @@
 #include "tools/mcp_tools_templates.h"
 #include "tools/mcp_tools_terrain.h"
 #include "tools/mcp_tools_tilemap.h"
+#include "tools/mcp_tools_hot_reload.h"
 
 #ifndef _WIN32
 #include <fcntl.h>
@@ -822,6 +823,9 @@ void MCPServer::_register_builtin_tools() {
 
 	// Project templates.
 	mcp_register_templates_tools(this);
+
+	// Hot reload.
+	mcp_register_hot_reload_tools(this);
 }
 
 // =============================================================================

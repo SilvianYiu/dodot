@@ -1,5 +1,5 @@
 /**************************************************************************/
-/*  mcp_server_editor_plugin.h                                            */
+/*  mcp_tools_hot_reload.h                                                */
 /**************************************************************************/
 /*                         This file is part of:                          */
 /*                             GODOT ENGINE                               */
@@ -30,36 +30,6 @@
 
 #pragma once
 
-#include "editor/plugins/editor_plugin.h"
+class MCPServer;
 
-class MCPServerEditorPlugin : public EditorPlugin {
-	GDCLASS(MCPServerEditorPlugin, EditorPlugin);
-
-	Thread thread;
-	bool thread_running = false;
-	bool start_attempted = false;
-	bool started = false;
-
-	bool use_thread = false;
-	String host;
-	int port = 0;
-	int poll_limit_usec = 0;
-
-	static void thread_main(void *p_userdata);
-
-	// Event hooks — connected to editor signals.
-	void _on_filesystem_changed();
-	void _on_resources_reload(const PackedStringArray &p_resources);
-	void _on_scene_changed();
-	void _on_scene_saved(const String &p_path);
-	void _connect_event_hooks();
-
-private:
-	void _notification(int p_what);
-
-public:
-	static int port_override;
-	MCPServerEditorPlugin();
-	void start();
-	void stop();
-};
+void mcp_register_hot_reload_tools(MCPServer *p_server);

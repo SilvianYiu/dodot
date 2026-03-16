@@ -1,6 +1,6 @@
 # Godot AI Fork — MCP Server Complete Reference
 
-> 107 MCP Tools + 3 Resources + 5 Prompts + 12 CLI Commands
+> 113 MCP Tools + 3 Resources + 5 Prompts + 4 Events + 12 CLI Commands
 
 ---
 
@@ -222,6 +222,30 @@
 | 105 | `create_project_template` | Create a project from template (2d_platformer, 3d_fps, 3d_third_person, top_down, puzzle, empty) |
 | 106 | `list_templates` | List available project templates |
 
+### 23. Hot Reload Tools (6) — `tools/mcp_tools_hot_reload.cpp`
+
+| # | Tool Name | Description |
+|---|-----------|-------------|
+| 107 | `trigger_rescan` | Force editor filesystem to rescan for file changes immediately |
+| 108 | `reload_script` | Reload a specific script from disk with state preservation |
+| 109 | `reload_scene` | Reload the current or a specific scene from disk |
+| 110 | `get_modified_files` | List files loaded in cache (filter by scripts/scenes/resources) |
+| 111 | `reload_all_scripts` | Reload all currently open scripts from disk |
+| 112 | `set_auto_reload` | Configure auto-reload behavior for AI workflow |
+
+---
+
+## MCP Events (4)
+
+Events are pushed to MCP subscribers when editor state changes.
+
+| # | Event Name | Description | Data Fields |
+|---|------------|-------------|-------------|
+| 1 | `filesystem_changed` | Editor filesystem detected changes | `timestamp` |
+| 2 | `resources_reloaded` | Resources were reloaded from disk | `paths`, `count`, `timestamp` |
+| 3 | `scene_changed` | Active scene changed in editor | `scene_path`, `scene_root`, `timestamp` |
+| 4 | `scene_saved` | Scene was saved to disk | `path`, `timestamp` |
+
 ---
 
 ## MCP Resources (3)
@@ -325,10 +349,11 @@ godot --headless --project /my/game --dump-api-json /tmp/godot_api.json
 
 | Category | Count |
 |----------|-------|
-| MCP Tools | 107 |
+| MCP Tools | 113 |
+| MCP Events | 4 |
 | MCP Resources | 3 |
 | MCP Prompts | 5 |
 | CLI Commands | 12 |
 | Query Expressions | 5 |
 | Engine Flags | 3 |
-| **Total Capabilities** | **135** |
+| **Total Capabilities** | **142** |

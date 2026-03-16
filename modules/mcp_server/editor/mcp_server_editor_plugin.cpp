@@ -32,9 +32,11 @@
 
 #include "../mcp_server.h"
 
+#include "core/object/callable_mp.h"
 #include "core/os/os.h"
 #include "editor/editor_log.h"
 #include "editor/editor_node.h"
+#include "editor/file_system/editor_file_system.h"
 #include "editor/settings/editor_settings.h"
 
 int MCPServerEditorPlugin::port_override = -1;
@@ -119,6 +121,86 @@ void MCPServerEditorPlugin::start() {
 	}
 	set_process_internal(!use_thread);
 	started = true;
+
+	// Connect event hooks to push editor events to MCP subscribers.
+	_connect_event_hooks();
+}
+
+void MCPServerEditorPlugin::_connect_event_hooks() {
+	// Connect to EditorFileSystem signals for file change events.
+	EditorFileSystem *efs = EditorFileSystem::get_singleton();
+	if (efs) {
+		if (!efs->is_connected("filesystem_changed", callable_mp(this, &MCPServerEditorPlugin::_on_filesystem_changed))) {
+			efs->connect("filesystem_changed", callable_mp(this, &MCPServerEditorPlugin::_on_filesystem_changed));
+		}
+		if (!efs->is_connected("resources_reload", callable_mp(this, &MCPServerEditorPlugin::_on_resources_reload))) {
+			efs->connect("resources_reload", callable_mp(this, &MCPServerEditorPlugin::_on_resources_reload));
+		}
+	}
+
+	// Connect to EditorNode for scene events.
+	EditorNode *editor = EditorNode::get_singleton();
+	if (editor) {
+		if (!editor->is_connected("scene_changed", callable_mp(this, &MCPServerEditorPlugin::_on_scene_changed))) {
+			editor->connect("scene_changed", callable_mp(this, &MCPServerEditorPlugin::_on_scene_changed));
+		}
+		if (!editor->is_connected("scene_saved", callable_mp(this, &MCPServerEditorPlugin::_on_scene_saved))) {
+			editor->connect("scene_saved", callable_mp(this, &MCPServerEditorPlugin::_on_scene_saved));
+		}
+	}
+}
+
+void MCPServerEditorPlugin::_on_filesystem_changed() {
+	MCPServer *mcp = MCPServer::get_singleton();
+	if (mcp) {
+		Dictionary data;
+		data["event"] = "filesystem_changed";
+		data["timestamp"] = OS::get_singleton()->get_ticks_msec();
+		mcp->broadcast_notification("filesystem_changed", data);
+	}
+}
+
+void MCPServerEditorPlugin::_on_resources_reload(const PackedStringArray &p_resources) {
+	MCPServer *mcp = MCPServer::get_singleton();
+	if (mcp) {
+		Array paths;
+		for (int i = 0; i < p_resources.size(); i++) {
+			paths.push_back(p_resources[i]);
+		}
+
+		Dictionary data;
+		data["event"] = "resources_reloaded";
+		data["paths"] = paths;
+		data["count"] = paths.size();
+		data["timestamp"] = OS::get_singleton()->get_ticks_msec();
+		mcp->broadcast_notification("resources_reloaded", data);
+	}
+}
+
+void MCPServerEditorPlugin::_on_scene_changed() {
+	MCPServer *mcp = MCPServer::get_singleton();
+	if (mcp) {
+		EditorNode *editor = EditorNode::get_singleton();
+		Dictionary data;
+		data["event"] = "scene_changed";
+		if (editor && editor->get_edited_scene()) {
+			data["scene_path"] = editor->get_edited_scene()->get_scene_file_path();
+			data["scene_root"] = editor->get_edited_scene()->get_name();
+		}
+		data["timestamp"] = OS::get_singleton()->get_ticks_msec();
+		mcp->broadcast_notification("scene_changed", data);
+	}
+}
+
+void MCPServerEditorPlugin::_on_scene_saved(const String &p_path) {
+	MCPServer *mcp = MCPServer::get_singleton();
+	if (mcp) {
+		Dictionary data;
+		data["event"] = "scene_saved";
+		data["path"] = p_path;
+		data["timestamp"] = OS::get_singleton()->get_ticks_msec();
+		mcp->broadcast_notification("scene_saved", data);
+	}
 }
 
 void MCPServerEditorPlugin::stop() {

@@ -53,6 +53,12 @@ static inline Dictionary mcp_success() {
 	return result;
 }
 
+static inline Dictionary mcp_success(const Dictionary &p_data) {
+	Dictionary result = p_data.duplicate();
+	result["success"] = true;
+	return result;
+}
+
 // --- SceneTree / Node helpers ---
 
 static inline SceneTree *mcp_get_scene_tree() {
