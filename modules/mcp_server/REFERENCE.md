@@ -353,6 +353,35 @@ godot --headless --project /my/game --run-tests res://unit_tests
 
 ---
 
+## Native JSON Scene Format (`.scene.json`)
+
+The engine natively supports `.scene.json` as a scene file format. AI tools can directly read and write `.scene.json` files — no conversion step needed.
+
+**Extension:** `.scene.json` (e.g. `main.scene.json`)
+
+**Features:**
+- Bidirectional: load and save PackedScene as JSON
+- Type-preserved properties (`_type` tags for Vector3, Color, Transform3D, etc.)
+- External resources referenced by ID (`ExtResource`)
+- Sub-resources (meshes, materials, shapes) embedded with full properties (`SubResource`)
+- Signal connections with binds/unbinds
+- Editable instances for inherited scenes
+
+**Usage:**
+```bash
+# Save via CLI (export existing .tscn to .scene.json)
+godot --headless --project /my/game --export-scene-json res://main.tscn /my/game/main.scene.json
+
+# Load in GDScript (native resource format)
+var scene = load("res://my_scene.scene.json")
+var root = scene.instantiate()
+
+# Save in GDScript
+ResourceSaver.save(scene, "res://output.scene.json")
+```
+
+---
+
 ## Engine Flags
 
 | Flag | Description |

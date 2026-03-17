@@ -144,6 +144,7 @@
 #include "scene/resources/particle_process_material.h"
 #include "scene/resources/placeholder_textures.h"
 #include "scene/resources/portable_compressed_texture.h"
+#include "scene/resources/resource_format_scene_json.h"
 #include "scene/resources/resource_format_text.h"
 #include "scene/resources/shader_include.h"
 #include "scene/resources/skeleton_profile.h"
@@ -376,6 +377,9 @@
 static Ref<ResourceFormatSaverText> resource_saver_text;
 static Ref<ResourceFormatLoaderText> resource_loader_text;
 
+static Ref<ResourceFormatSaverSceneJSON> resource_saver_scene_json;
+static Ref<ResourceFormatLoaderSceneJSON> resource_loader_scene_json;
+
 static Ref<ResourceFormatLoaderCompressedTexture2D> resource_loader_stream_texture;
 static Ref<ResourceFormatLoaderCompressedTextureLayered> resource_loader_texture_layered;
 static Ref<ResourceFormatLoaderCompressedTexture3D> resource_loader_texture_3d;
@@ -415,6 +419,12 @@ void register_scene_types() {
 
 	resource_loader_text.instantiate();
 	ResourceLoader::add_resource_format_loader(resource_loader_text, true);
+
+	resource_saver_scene_json.instantiate();
+	ResourceSaver::add_resource_format_saver(resource_saver_scene_json, true);
+
+	resource_loader_scene_json.instantiate();
+	ResourceLoader::add_resource_format_loader(resource_loader_scene_json, true);
 
 	if constexpr (GD_IS_CLASS_ENABLED(Shader)) {
 		resource_saver_shader.instantiate();
@@ -1456,6 +1466,12 @@ void unregister_scene_types() {
 
 	ResourceLoader::remove_resource_format_loader(resource_loader_text);
 	resource_loader_text.unref();
+
+	ResourceSaver::remove_resource_format_saver(resource_saver_scene_json);
+	resource_saver_scene_json.unref();
+
+	ResourceLoader::remove_resource_format_loader(resource_loader_scene_json);
+	resource_loader_scene_json.unref();
 
 	if constexpr (GD_IS_CLASS_ENABLED(Shader)) {
 		ResourceSaver::remove_resource_format_saver(resource_saver_shader);
