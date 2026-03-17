@@ -74,6 +74,8 @@ public:
 	Array definition(const Dictionary &p_params);
 	Variant declaration(const Dictionary &p_params);
 	Variant signatureHelp(const Dictionary &p_params);
+	Array inlayHint(const Dictionary &p_params);
+	Array codeAction(const Dictionary &p_params);
 
 	GDScriptTextDocument();
 };

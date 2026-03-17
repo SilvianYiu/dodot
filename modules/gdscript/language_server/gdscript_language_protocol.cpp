@@ -587,6 +587,9 @@ GDScriptLanguageProtocol::GDScriptLanguageProtocol() {
 	SET_DOCUMENT_METHOD(declaration);
 	SET_DOCUMENT_METHOD(signatureHelp);
 
+	SET_DOCUMENT_METHOD(inlayHint);
+	SET_DOCUMENT_METHOD(codeAction);
+
 	SET_DOCUMENT_METHOD(nativeSymbol); // Custom method.
 
 	SET_COMPLETION_METHOD(resolve);

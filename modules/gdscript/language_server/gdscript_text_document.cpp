@@ -31,6 +31,7 @@
 #include "gdscript_text_document.h"
 
 #include "../gdscript.h"
+#include "../gdscript_analyzer.h"
 #include "gdscript_extend_parser.h"
 #include "gdscript_language_protocol.h"
 
@@ -64,6 +65,8 @@ void GDScriptTextDocument::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("definition", "params"), &GDScriptTextDocument::definition);
 	ClassDB::bind_method(D_METHOD("declaration", "params"), &GDScriptTextDocument::declaration);
 	ClassDB::bind_method(D_METHOD("signatureHelp", "params"), &GDScriptTextDocument::signatureHelp);
+	ClassDB::bind_method(D_METHOD("inlayHint", "params"), &GDScriptTextDocument::inlayHint);
+	ClassDB::bind_method(D_METHOD("codeAction", "params"), &GDScriptTextDocument::codeAction);
 #endif // !DISABLE_DEPRECATED
 }
 
@@ -446,6 +449,411 @@ void GDScriptTextDocument::show_native_symbol_in_editor(const String &p_symbol_i
 	callable_mp(ScriptEditor::get_singleton(), &ScriptEditor::goto_help).call_deferred(p_symbol_id);
 
 	DisplayServer::get_singleton()->window_move_to_foreground();
+}
+
+// =============================================================================
+// Inlay Hints
+// =============================================================================
+
+// Helper: recursively collect inlay hints from AST nodes.
+static void _collect_inlay_hints_from_node(const GDScriptParser::Node *p_node, const Vector<String> &p_lines, Array &r_hints) {
+	if (!p_node) {
+		return;
+	}
+
+	switch (p_node->type) {
+		case GDScriptParser::Node::CALL: {
+			const GDScriptParser::CallNode *call = static_cast<const GDScriptParser::CallNode *>(p_node);
+			// Show parameter name hints for function calls with 2+ arguments.
+			if (call->arguments.size() >= 2) {
+				// Try to get parameter names from the function's MethodInfo.
+				// The callee's datatype may have method_info populated.
+				MethodInfo mi;
+				bool has_info = false;
+
+				// Check if the call resolved to a known function via its callee's datatype.
+				if (call->callee && call->callee->datatype.kind == GDScriptParser::DataType::BUILTIN) {
+					Variant::Type bt = call->callee->datatype.builtin_type;
+					if (bt != Variant::NIL && Variant::has_builtin_method(bt, call->function_name)) {
+						mi = Variant::get_builtin_method_info(bt, call->function_name);
+						has_info = true;
+					}
+				}
+
+				// Try native class methods.
+				if (!has_info && !call->function_name.is_empty()) {
+					// Walk up to find the class context.
+					if (call->callee) {
+						GDScriptParser::DataType dt = call->callee->datatype;
+						if (dt.kind == GDScriptParser::DataType::NATIVE && !dt.native_type.is_empty()) {
+							MethodInfo m;
+							if (ClassDB::get_method_info(dt.native_type, call->function_name, &m)) {
+								mi = m;
+								has_info = true;
+							}
+						}
+					}
+				}
+
+				if (has_info && mi.arguments.size() > 0) {
+					int hint_count = MIN(call->arguments.size(), (int)mi.arguments.size());
+					for (int i = 0; i < hint_count; i++) {
+						String param_name = mi.arguments[i].name;
+						if (param_name.is_empty()) {
+							continue;
+						}
+
+						const GDScriptParser::ExpressionNode *arg = call->arguments[i];
+						if (!arg) {
+							continue;
+						}
+
+						// Skip if argument is already a named literal matching the parameter.
+						if (arg->type == GDScriptParser::Node::IDENTIFIER) {
+							const GDScriptParser::IdentifierNode *id = static_cast<const GDScriptParser::IdentifierNode *>(arg);
+							if (id->name == param_name) {
+								continue;
+							}
+						}
+
+						LSP::InlayHint hint;
+						hint.position.line = arg->start_line - 1; // LSP is 0-based.
+						hint.position.character = arg->start_column - 1;
+						hint.label = param_name + ":";
+						hint.kind = LSP::InlayHintKind::Parameter;
+						hint.paddingRight = true;
+						r_hints.push_back(hint.to_json());
+					}
+				}
+			}
+
+			// Recurse into call arguments.
+			for (int i = 0; i < call->arguments.size(); i++) {
+				_collect_inlay_hints_from_node(call->arguments[i], p_lines, r_hints);
+			}
+			// Recurse into callee.
+			_collect_inlay_hints_from_node(call->callee, p_lines, r_hints);
+			break;
+		}
+
+		case GDScriptParser::Node::VARIABLE: {
+			const GDScriptParser::VariableNode *var = static_cast<const GDScriptParser::VariableNode *>(p_node);
+			// Show inferred type hint when no explicit type annotation.
+			if (!var->datatype_specifier && var->get_datatype().is_set() && !var->get_datatype().is_variant()) {
+				String type_str = var->get_datatype().to_string();
+				if (!type_str.is_empty() && type_str != "Variant") {
+					LSP::InlayHint hint;
+					// Position after the variable name.
+					if (var->identifier) {
+						hint.position.line = var->identifier->start_line - 1;
+						// Place after the identifier.
+						hint.position.character = var->identifier->end_column;
+					} else {
+						hint.position.line = var->start_line - 1;
+						hint.position.character = var->end_column;
+					}
+					hint.label = ": " + type_str;
+					hint.kind = LSP::InlayHintKind::Type;
+					hint.paddingLeft = true;
+					r_hints.push_back(hint.to_json());
+				}
+			}
+			break;
+		}
+
+		case GDScriptParser::Node::FOR: {
+			const GDScriptParser::ForNode *for_node = static_cast<const GDScriptParser::ForNode *>(p_node);
+			if (for_node->loop) {
+				_collect_inlay_hints_from_node(for_node->loop, p_lines, r_hints);
+			}
+			_collect_inlay_hints_from_node(for_node->list, p_lines, r_hints);
+			break;
+		}
+
+		case GDScriptParser::Node::IF: {
+			const GDScriptParser::IfNode *if_node = static_cast<const GDScriptParser::IfNode *>(p_node);
+			_collect_inlay_hints_from_node(if_node->condition, p_lines, r_hints);
+			if (if_node->true_block) {
+				_collect_inlay_hints_from_node(if_node->true_block, p_lines, r_hints);
+			}
+			if (if_node->false_block) {
+				_collect_inlay_hints_from_node(if_node->false_block, p_lines, r_hints);
+			}
+			break;
+		}
+
+		case GDScriptParser::Node::WHILE: {
+			const GDScriptParser::WhileNode *while_node = static_cast<const GDScriptParser::WhileNode *>(p_node);
+			_collect_inlay_hints_from_node(while_node->condition, p_lines, r_hints);
+			if (while_node->loop) {
+				_collect_inlay_hints_from_node(while_node->loop, p_lines, r_hints);
+			}
+			break;
+		}
+
+		case GDScriptParser::Node::MATCH: {
+			const GDScriptParser::MatchNode *match_node = static_cast<const GDScriptParser::MatchNode *>(p_node);
+			_collect_inlay_hints_from_node(match_node->test, p_lines, r_hints);
+			for (int i = 0; i < match_node->branches.size(); i++) {
+				if (match_node->branches[i]->block) {
+					_collect_inlay_hints_from_node(match_node->branches[i]->block, p_lines, r_hints);
+				}
+			}
+			break;
+		}
+
+		case GDScriptParser::Node::RETURN: {
+			const GDScriptParser::ReturnNode *ret = static_cast<const GDScriptParser::ReturnNode *>(p_node);
+			_collect_inlay_hints_from_node(ret->return_value, p_lines, r_hints);
+			break;
+		}
+
+		case GDScriptParser::Node::ASSIGNMENT: {
+			const GDScriptParser::AssignmentNode *assign = static_cast<const GDScriptParser::AssignmentNode *>(p_node);
+			_collect_inlay_hints_from_node(assign->assignee, p_lines, r_hints);
+			_collect_inlay_hints_from_node(assign->assigned_value, p_lines, r_hints);
+			break;
+		}
+
+		case GDScriptParser::Node::BINARY_OPERATOR: {
+			const GDScriptParser::BinaryOpNode *bin = static_cast<const GDScriptParser::BinaryOpNode *>(p_node);
+			_collect_inlay_hints_from_node(bin->left_operand, p_lines, r_hints);
+			_collect_inlay_hints_from_node(bin->right_operand, p_lines, r_hints);
+			break;
+		}
+
+		case GDScriptParser::Node::UNARY_OPERATOR: {
+			const GDScriptParser::UnaryOpNode *un = static_cast<const GDScriptParser::UnaryOpNode *>(p_node);
+			_collect_inlay_hints_from_node(un->operand, p_lines, r_hints);
+			break;
+		}
+
+		case GDScriptParser::Node::TERNARY_OPERATOR: {
+			const GDScriptParser::TernaryOpNode *tern = static_cast<const GDScriptParser::TernaryOpNode *>(p_node);
+			_collect_inlay_hints_from_node(tern->true_expr, p_lines, r_hints);
+			_collect_inlay_hints_from_node(tern->condition, p_lines, r_hints);
+			_collect_inlay_hints_from_node(tern->false_expr, p_lines, r_hints);
+			break;
+		}
+
+		case GDScriptParser::Node::SUBSCRIPT: {
+			const GDScriptParser::SubscriptNode *sub = static_cast<const GDScriptParser::SubscriptNode *>(p_node);
+			_collect_inlay_hints_from_node(sub->base, p_lines, r_hints);
+			_collect_inlay_hints_from_node(sub->index, p_lines, r_hints);
+			break;
+		}
+
+		case GDScriptParser::Node::CAST: {
+			const GDScriptParser::CastNode *cast = static_cast<const GDScriptParser::CastNode *>(p_node);
+			_collect_inlay_hints_from_node(cast->operand, p_lines, r_hints);
+			break;
+		}
+
+		case GDScriptParser::Node::SUITE: {
+			const GDScriptParser::SuiteNode *suite = static_cast<const GDScriptParser::SuiteNode *>(p_node);
+			for (int i = 0; i < suite->statements.size(); i++) {
+				_collect_inlay_hints_from_node(suite->statements[i], p_lines, r_hints);
+			}
+			break;
+		}
+
+		case GDScriptParser::Node::FUNCTION: {
+			const GDScriptParser::FunctionNode *func = static_cast<const GDScriptParser::FunctionNode *>(p_node);
+			if (func->body) {
+				_collect_inlay_hints_from_node(func->body, p_lines, r_hints);
+			}
+			break;
+		}
+
+		case GDScriptParser::Node::CLASS: {
+			const GDScriptParser::ClassNode *cls = static_cast<const GDScriptParser::ClassNode *>(p_node);
+			for (int i = 0; i < cls->members.size(); i++) {
+				const GDScriptParser::ClassNode::Member &member = cls->members[i];
+				switch (member.type) {
+					case GDScriptParser::ClassNode::Member::FUNCTION:
+						_collect_inlay_hints_from_node(member.function, p_lines, r_hints);
+						break;
+					case GDScriptParser::ClassNode::Member::VARIABLE:
+						_collect_inlay_hints_from_node(member.variable, p_lines, r_hints);
+						break;
+					case GDScriptParser::ClassNode::Member::CLASS:
+						_collect_inlay_hints_from_node(member.m_class, p_lines, r_hints);
+						break;
+					default:
+						break;
+				}
+			}
+			break;
+		}
+
+		default:
+			break;
+	}
+}
+
+Array GDScriptTextDocument::inlayHint(const Dictionary &p_params) {
+	Array hints;
+
+	Dictionary text_document = p_params["textDocument"];
+	String uri = text_document["uri"];
+	String path = GDScriptLanguageProtocol::get_singleton()->get_workspace()->get_file_path(uri);
+
+	const ExtendGDScriptParser *parser = GDScriptLanguageProtocol::get_singleton()->get_parse_result(path);
+	if (!parser) {
+		return hints;
+	}
+
+	const GDScriptParser::ClassNode *tree = parser->get_tree();
+	if (!tree) {
+		return hints;
+	}
+
+	_collect_inlay_hints_from_node(tree, parser->get_lines(), hints);
+
+	return hints;
+}
+
+// =============================================================================
+// Code Actions
+// =============================================================================
+
+Array GDScriptTextDocument::codeAction(const Dictionary &p_params) {
+	Array actions;
+
+	Dictionary text_document = p_params["textDocument"];
+	String uri = text_document["uri"];
+	String path = GDScriptLanguageProtocol::get_singleton()->get_workspace()->get_file_path(uri);
+
+	Dictionary context = p_params["context"];
+	Array client_diagnostics = context.get("diagnostics", Array());
+
+	const ExtendGDScriptParser *parser = GDScriptLanguageProtocol::get_singleton()->get_parse_result(path);
+	if (!parser) {
+		return actions;
+	}
+
+	const Vector<LSP::Diagnostic> &diagnostics = parser->get_diagnostics();
+
+	for (int i = 0; i < diagnostics.size(); i++) {
+		const LSP::Diagnostic &diag = diagnostics[i];
+		String msg = diag.message;
+
+		// Quick fix: Remove unused variable.
+		if (msg.contains("is declared but never used")) {
+			// Extract variable name from message.
+			// Message format: 'The local variable "x" is declared but never used...'
+			int start_quote = msg.find("\"");
+			int end_quote = msg.find("\"", start_quote + 1);
+			if (start_quote >= 0 && end_quote > start_quote) {
+				String var_name = msg.substr(start_quote + 1, end_quote - start_quote - 1);
+
+				// Find the line and create an edit to prefix with underscore.
+				int line = diag.range.start.line;
+				const Vector<String> &lines = parser->get_lines();
+				if (line >= 0 && line < lines.size()) {
+					String line_text = lines[line];
+					int var_pos = line_text.find(var_name);
+					if (var_pos >= 0) {
+						LSP::CodeAction action;
+						action.title = "Prefix with underscore: _" + var_name;
+						action.kind = LSP::CodeActionKind::QuickFix;
+						action.diagnostics.push_back(diag);
+						action.isPreferred = true;
+
+						LSP::TextEdit edit;
+						edit.range.start.line = line;
+						edit.range.start.character = var_pos;
+						edit.range.end.line = line;
+						edit.range.end.character = var_pos + var_name.length();
+						edit.newText = "_" + var_name;
+
+						Vector<LSP::TextEdit> edits;
+						edits.push_back(edit);
+						action.edit.changes[uri] = edits;
+
+						actions.push_back(action.to_json());
+					}
+				}
+			}
+		}
+
+		// Quick fix: Add type annotation for untyped variables.
+		if (msg.contains("has no type annotation") || msg.contains("no type annotation")) {
+			int line = diag.range.start.line;
+			const Vector<String> &lines = parser->get_lines();
+			if (line >= 0 && line < lines.size()) {
+				String line_text = lines[line];
+
+				// Look for "var name =" pattern and suggest "var name: Type ="
+				// Find the variable declaration in the AST.
+				const GDScriptParser::ClassNode *tree = parser->get_tree();
+				if (tree) {
+					for (int m = 0; m < tree->members.size(); m++) {
+						const GDScriptParser::ClassNode::Member &member = tree->members[m];
+						if (member.type == GDScriptParser::ClassNode::Member::VARIABLE) {
+							const GDScriptParser::VariableNode *var = member.variable;
+							if (var && var->start_line - 1 == line && var->get_datatype().is_set() && !var->get_datatype().is_variant()) {
+								String type_str = var->get_datatype().to_string();
+								if (!type_str.is_empty() && type_str != "Variant" && var->identifier) {
+									LSP::CodeAction action;
+									action.title = "Add type annotation: " + type_str;
+									action.kind = LSP::CodeActionKind::QuickFix;
+									action.diagnostics.push_back(diag);
+									action.isPreferred = true;
+
+									// Insert ": Type" after the variable name.
+									LSP::TextEdit edit;
+									edit.range.start.line = line;
+									edit.range.start.character = var->identifier->end_column;
+									edit.range.end.line = line;
+									edit.range.end.character = var->identifier->end_column;
+									edit.newText = ": " + type_str;
+
+									Vector<LSP::TextEdit> edits;
+									edits.push_back(edit);
+									action.edit.changes[uri] = edits;
+
+									actions.push_back(action.to_json());
+								}
+							}
+						}
+					}
+				}
+			}
+		}
+
+		// Quick fix: Convert to static typing (replace = with :=).
+		if (msg.contains("infer the type") || msg.contains("use := to infer")) {
+			int line = diag.range.start.line;
+			const Vector<String> &lines = parser->get_lines();
+			if (line >= 0 && line < lines.size()) {
+				String line_text = lines[line];
+				int eq_pos = line_text.find("=");
+				// Make sure it's not == or !=
+				if (eq_pos > 0 && line_text[eq_pos - 1] != '!' && line_text[eq_pos - 1] != ':' && (eq_pos + 1 >= line_text.length() || line_text[eq_pos + 1] != '=')) {
+					LSP::CodeAction action;
+					action.title = "Use := for type inference";
+					action.kind = LSP::CodeActionKind::QuickFix;
+					action.diagnostics.push_back(diag);
+
+					LSP::TextEdit edit;
+					edit.range.start.line = line;
+					edit.range.start.character = eq_pos;
+					edit.range.end.line = line;
+					edit.range.end.character = eq_pos + 1;
+					edit.newText = ":=";
+
+					Vector<LSP::TextEdit> edits;
+					edits.push_back(edit);
+					action.edit.changes[uri] = edits;
+
+					actions.push_back(action.to_json());
+				}
+			}
+		}
+	}
+
+	return actions;
 }
 
 Array GDScriptTextDocument::find_symbols(const LSP::TextDocumentPositionParams &p_location, List<const LSP::DocumentSymbol *> &r_list) {

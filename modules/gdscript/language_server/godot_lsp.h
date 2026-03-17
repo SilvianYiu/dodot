@@ -1721,6 +1721,95 @@ struct FileOperations {
 };
 
 /**
+ * Inlay hint kinds.
+ */
+namespace InlayHintKind {
+static const int Type = 1;
+static const int Parameter = 2;
+} // namespace InlayHintKind
+
+/**
+ * Inlay hint represents a piece of inline information.
+ */
+struct InlayHint {
+	Position position;
+	String label;
+	int kind = InlayHintKind::Type;
+	bool paddingLeft = false;
+	bool paddingRight = false;
+
+	_FORCE_INLINE_ Dictionary to_json() const {
+		Dictionary dict;
+		dict["position"] = position.to_json();
+		dict["label"] = label;
+		dict["kind"] = kind;
+		dict["paddingLeft"] = paddingLeft;
+		dict["paddingRight"] = paddingRight;
+		return dict;
+	}
+};
+
+struct InlayHintOptions {
+	bool resolveProvider = false;
+
+	_FORCE_INLINE_ Dictionary to_json() const {
+		Dictionary dict;
+		dict["resolveProvider"] = resolveProvider;
+		return dict;
+	}
+};
+
+/**
+ * Code action kinds.
+ */
+namespace CodeActionKind {
+static const String QuickFix = "quickfix";
+static const String Refactor = "refactor";
+static const String Source = "source";
+} // namespace CodeActionKind
+
+/**
+ * A code action represents a change that can be performed in code.
+ */
+struct CodeAction {
+	String title;
+	String kind; // CodeActionKind
+	Vector<Diagnostic> diagnostics;
+	bool isPreferred = false;
+	WorkspaceEdit edit;
+
+	_FORCE_INLINE_ Dictionary to_json() const {
+		Dictionary dict;
+		dict["title"] = title;
+		dict["kind"] = kind;
+		dict["isPreferred"] = isPreferred;
+		if (!diagnostics.is_empty()) {
+			Array diags;
+			for (int i = 0; i < diagnostics.size(); i++) {
+				diags.push_back(diagnostics[i].to_json());
+			}
+			dict["diagnostics"] = diags;
+		}
+		dict["edit"] = edit.to_json();
+		return dict;
+	}
+};
+
+struct CodeActionOptions {
+	Vector<String> codeActionKinds;
+
+	_FORCE_INLINE_ Dictionary to_json() const {
+		Dictionary dict;
+		Array kinds;
+		for (int i = 0; i < codeActionKinds.size(); i++) {
+			kinds.push_back(codeActionKinds[i]);
+		}
+		dict["codeActionKinds"] = kinds;
+		return dict;
+	}
+};
+
+/**
  * Workspace specific server capabilities
  */
 struct Workspace {
@@ -1801,7 +1890,8 @@ struct ServerCapabilities {
 	 * valid if the client signals code action literal support via the property
 	 * `textDocument.codeAction.codeActionLiteralSupport`.
 	 */
-	bool codeActionProvider = false;
+	CodeActionOptions codeActionProvider;
+	bool codeActionEnabled = true;
 
 	/**
 	 * The server provides code lens.
@@ -1857,6 +1947,12 @@ struct ServerCapabilities {
 	bool declarationProvider = true;
 
 	/**
+	 * The server provides inlay hints.
+	 */
+	InlayHintOptions inlayHintProvider;
+	bool inlayHintEnabled = true;
+
+	/**
 	 * The server provides execute command support.
 	 */
 	ExecuteCommandOptions executeCommandProvider;
@@ -1884,10 +1980,20 @@ struct ServerCapabilities {
 		dict["documentSymbolProvider"] = documentSymbolProvider;
 		dict["workspaceSymbolProvider"] = workspaceSymbolProvider;
 		dict["workspace"] = workspace.to_json();
-		dict["codeActionProvider"] = codeActionProvider;
+		if (codeActionEnabled) {
+			codeActionProvider.codeActionKinds.push_back(CodeActionKind::QuickFix);
+			codeActionProvider.codeActionKinds.push_back(CodeActionKind::Refactor);
+			codeActionProvider.codeActionKinds.push_back(CodeActionKind::Source);
+			dict["codeActionProvider"] = codeActionProvider.to_json();
+		} else {
+			dict["codeActionProvider"] = false;
+		}
 		dict["documentFormattingProvider"] = documentFormattingProvider;
 		dict["documentRangeFormattingProvider"] = documentRangeFormattingProvider;
 		dict["declarationProvider"] = declarationProvider;
+		if (inlayHintEnabled) {
+			dict["inlayHintProvider"] = inlayHintProvider.to_json();
+		}
 		return dict;
 	}
 };

@@ -382,6 +382,27 @@ ResourceSaver.save(scene, "res://output.scene.json")
 
 ---
 
+## GDScript LSP Enhancements
+
+The built-in GDScript Language Server has been enhanced with AI-friendly features:
+
+### Inlay Hints (`textDocument/inlayHint`)
+- **Parameter name hints**: Shows parameter names at call sites with 2+ arguments (e.g. `move_and_collide(velocity:, test_only:)`)
+- **Inferred type hints**: Shows inferred types for variables without explicit type annotations (e.g. `var speed` → `var speed: float`)
+
+### Code Actions (`textDocument/codeAction`)
+- **Prefix unused variable**: Adds `_` prefix to unused variables to suppress warnings
+- **Add type annotation**: Suggests adding explicit type annotations based on inferred types
+- **Use := for inference**: Converts `=` to `:=` for type inference where suggested
+
+### Capabilities
+| Capability | Status |
+|-----------|--------|
+| `inlayHintProvider` | Enabled |
+| `codeActionProvider` | Enabled (quickfix, refactor, source) |
+
+---
+
 ## Engine Flags
 
 | Flag | Description |
