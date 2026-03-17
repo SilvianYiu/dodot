@@ -72,6 +72,7 @@
 #include "tools/mcp_tools_terrain.h"
 #include "tools/mcp_tools_tilemap.h"
 #include "tools/mcp_tools_hot_reload.h"
+#include "tools/mcp_tools_testing.h"
 
 #ifndef _WIN32
 #include <fcntl.h>
@@ -826,6 +827,9 @@ void MCPServer::_register_builtin_tools() {
 
 	// Hot reload.
 	mcp_register_hot_reload_tools(this);
+
+	// Testing.
+	mcp_register_testing_tools(this);
 }
 
 // =============================================================================

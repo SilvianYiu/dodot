@@ -1,10 +1,10 @@
 # Godot AI Fork — MCP Server Complete Reference
 
-> 113 MCP Tools + 3 Resources + 5 Prompts + 4 Events + 12 CLI Commands
+> 115 MCP Tools + 3 Resources + 5 Prompts + 4 Events + 14 CLI Commands
 
 ---
 
-## MCP Tools (107)
+## MCP Tools (115)
 
 ### 1. Core Tools (23) — `tools/mcp_tools_core.cpp`
 
@@ -233,6 +233,13 @@
 | 111 | `reload_all_scripts` | Reload all currently open scripts from disk |
 | 112 | `set_auto_reload` | Configure auto-reload behavior for AI workflow |
 
+### 24. Testing Tools (2) — `tools/mcp_tools_testing.cpp`
+
+| # | Tool Name | Description |
+|---|-----------|-------------|
+| 113 | `run_tests` | Run GDScript tests and return results as JSON |
+| 114 | `discover_tests` | Discover all test files in the test directory |
+
 ---
 
 ## MCP Events (4)
@@ -292,6 +299,8 @@ godot --headless --project <path> <command> [args]
 | 10 | `--export-scene-json` | `<source.tscn> <target.json>` | Convert .tscn scene to JSON format |
 | 11 | `--import-scene-json` | `<source.json> <target.tscn>` | Convert JSON back to .tscn format |
 | 12 | `--query` | `<expression>` | Query engine data |
+| 13 | `--run-tests` | `[directory]` | Run GDScript tests (default: res://tests), output JSON |
+| 14 | `--test-verbose` | — | Enable verbose test output (use with --run-tests) |
 
 ### Query Expressions
 
@@ -331,6 +340,15 @@ godot --headless --project /my/game --lint-gdscript
 
 # Export full API docs
 godot --headless --project /my/game --dump-api-json /tmp/godot_api.json
+
+# Run GDScript tests
+godot --headless --project /my/game --run-tests
+
+# Run tests with verbose output
+godot --headless --project /my/game --run-tests --test-verbose
+
+# Run tests in a specific directory
+godot --headless --project /my/game --run-tests res://unit_tests
 ```
 
 ---
@@ -349,11 +367,11 @@ godot --headless --project /my/game --dump-api-json /tmp/godot_api.json
 
 | Category | Count |
 |----------|-------|
-| MCP Tools | 113 |
+| MCP Tools | 115 |
 | MCP Events | 4 |
 | MCP Resources | 3 |
 | MCP Prompts | 5 |
-| CLI Commands | 12 |
+| CLI Commands | 14 |
 | Query Expressions | 5 |
 | Engine Flags | 3 |
-| **Total Capabilities** | **142** |
+| **Total Capabilities** | **146** |

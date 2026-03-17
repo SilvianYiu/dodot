@@ -1,0 +1,8 @@
+#!/usr/bin/env python
+
+Import("env")
+Import("env_modules")
+
+env_gdtest = env_modules.Clone()
+
+env_gdtest.add_source_files(env.modules_sources, "*.cpp")

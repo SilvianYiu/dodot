@@ -151,6 +151,10 @@
 #include "modules/mcp_server/mcp_server.h"
 #endif
 
+#ifdef MODULE_GDTEST_ENABLED
+#include "modules/gdtest/gdtest.h"
+#endif
+
 #if defined(MODULE_MONO_ENABLED) && defined(TOOLS_ENABLED)
 #include "modules/mono/editor/bindings_generator.h"
 #endif
@@ -272,11 +276,27 @@ static String cli_create_node_args;
 static bool cli_query = false;
 static String cli_query_expr;
 
-static bool _has_mcp_cli_command() {
-	return cli_validate_scripts || cli_lint_gdscript || cli_dump_api_json ||
+#ifdef MODULE_GDTEST_ENABLED
+static bool cli_run_tests = false;
+static String cli_run_tests_dir;
+static bool cli_run_tests_verbose = false;
+#endif
+
+static bool _has_ai_cli_command() {
+#ifdef MODULE_MCP_SERVER_ENABLED
+	if (cli_validate_scripts || cli_lint_gdscript || cli_dump_api_json ||
 			cli_project_info || cli_list_scenes || cli_list_scripts ||
 			cli_list_resources || cli_scene_info || cli_script_info ||
-			cli_export_scene_json || cli_import_scene_json || cli_query;
+			cli_export_scene_json || cli_import_scene_json || cli_query) {
+		return true;
+	}
+#endif
+#ifdef MODULE_GDTEST_ENABLED
+	if (cli_run_tests) {
+		return true;
+	}
+#endif
+	return false;
 }
 
 // Display
@@ -688,6 +708,8 @@ void Main::print_help(const char *p_binary) {
 	print_help_option("--export-scene-json <in.tscn> <out.json>", "Convert a .tscn scene file to JSON format.\n");
 	print_help_option("--import-scene-json <in.json> <out.tscn>", "Convert a JSON scene file to .tscn format.\n");
 	print_help_option("--query <expression>", "Query the project (e.g. \"get_all_nodes_of_type(CharacterBody3D)\").\n");
+	print_help_option("--run-tests [dir]", "Run GDTest tests from directory (default: res://tests). Output JSON.\n");
+	print_help_option("--test-verbose", "Enable verbose output when running tests.\n");
 
 	print_help_title("Display options");
 	print_help_option("-f, --fullscreen", "Request fullscreen mode.\n");
@@ -1655,6 +1677,23 @@ Error Main::setup(const char *execpath, int argc, char *argv[], bool p_second_ph
 				goto error;
 			}
 
+		} else if (arg == "--run-tests") {
+#ifdef MODULE_GDTEST_ENABLED
+			cli_run_tests = true;
+			cmdline_tool = true;
+			if (N && !N->get().begins_with("-")) {
+				cli_run_tests_dir = N->get();
+				N = N->next();
+			}
+#else
+			OS::get_singleton()->print("GDTest module not enabled.\n");
+			goto error;
+#endif
+		} else if (arg == "--test-verbose") {
+#ifdef MODULE_GDTEST_ENABLED
+			cli_run_tests_verbose = true;
+#endif
+
 		} else if (arg == "--log-file") { // write to log file
 
 			if (N) {
@@ -2473,7 +2512,7 @@ Error Main::setup(const char *execpath, int argc, char *argv[], bool p_second_ph
 #ifdef TOOLS_ENABLED
 		if (!editor && !project_manager
 #ifdef MODULE_MCP_SERVER_ENABLED
-				&& !_has_mcp_cli_command() && !mcp_stdio && mcp_port <= 0
+				&& !_has_ai_cli_command() && !mcp_stdio && mcp_port <= 0
 #endif
 		) {
 #endif
@@ -3172,7 +3211,7 @@ Error Main::setup2(bool p_show_boot_logo) {
 
 	// Don't use rich formatting to prevent ANSI escape codes from being written to log files.
 #ifdef MODULE_MCP_SERVER_ENABLED
-	if (!_has_mcp_cli_command()) {
+	if (!_has_ai_cli_command()) {
 #endif
 		print_header(false);
 #ifdef MODULE_MCP_SERVER_ENABLED
@@ -4187,6 +4226,12 @@ int Main::start() {
 		if (cli_ret >= 0) {
 			return cli_ret;
 		}
+	}
+#endif
+
+#ifdef MODULE_GDTEST_ENABLED
+	if (cli_run_tests) {
+		return GDTest::run_tests_cli(cli_run_tests_dir, cli_run_tests_verbose);
 	}
 #endif
 
