@@ -106,7 +106,7 @@ class GDTest : public RefCounted {
 	double total_duration_ms = 0.0;
 
 	// Internal.
-	Vector<String> _discover_test_files(const String &p_dir);
+	Vector<String> _discover_test_files(const String &p_dir, int p_depth = 0);
 	Array _run_test_script(const String &p_path);
 	Ref<GDTestResult> _execute_test_method(Object *p_instance, const String &p_method, const String &p_suite, const String &p_path);
 

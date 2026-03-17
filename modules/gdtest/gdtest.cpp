@@ -132,8 +132,14 @@ void GDTest::_bind_methods() {
 
 // --- Test Discovery ---
 
-Vector<String> GDTest::_discover_test_files(const String &p_dir) {
+Vector<String> GDTest::_discover_test_files(const String &p_dir, int p_depth) {
 	Vector<String> test_files;
+
+	const int MAX_DEPTH = 20;
+	if (p_depth > MAX_DEPTH) {
+		WARN_PRINT(vformat("Test directory nesting too deep (>%d) at '%s', skipping.", MAX_DEPTH, p_dir));
+		return test_files;
+	}
 
 	Ref<DirAccess> da = DirAccess::open(p_dir);
 	if (da.is_null()) {
@@ -148,7 +154,7 @@ Vector<String> GDTest::_discover_test_files(const String &p_dir) {
 			if (file != "." && file != "..") {
 				// Recurse into subdirectories.
 				String subdir = p_dir.path_join(file);
-				Vector<String> sub_files = _discover_test_files(subdir);
+				Vector<String> sub_files = _discover_test_files(subdir, p_depth + 1);
 				test_files.append_array(sub_files);
 			}
 		} else if (file.ends_with(".gd") && file.begins_with(test_prefix)) {
@@ -255,9 +261,15 @@ Array GDTest::_run_test_script(const String &p_path) {
 	// Instantiate.
 	StringName base_type = script->get_instance_base_type();
 	Object *obj = ClassDB::instantiate(base_type);
+	Ref<RefCounted> ref_holder; // Prevents leak if obj is RefCounted.
 	if (!obj) {
-		// Try RefCounted as fallback.
-		obj = memnew(RefCounted);
+		ref_holder.instantiate();
+		obj = ref_holder.ptr();
+	} else {
+		RefCounted *rc = Object::cast_to<RefCounted>(obj);
+		if (rc) {
+			ref_holder = Ref<RefCounted>(rc);
+		}
 	}
 
 	obj->set_script(script);
@@ -300,7 +312,8 @@ Array GDTest::_run_test_script(const String &p_path) {
 	}
 
 	// If the object is not RefCounted, we need to free it.
-	if (!Object::cast_to<RefCounted>(obj)) {
+	// RefCounted objects are cleaned up automatically via ref_holder.
+	if (ref_holder.is_null()) {
 		memdelete(obj);
 	}
 

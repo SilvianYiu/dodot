@@ -595,7 +595,7 @@ static void _collect_inlay_hints_from_node(const GDScriptParser::Node *p_node, c
 			const GDScriptParser::MatchNode *match_node = static_cast<const GDScriptParser::MatchNode *>(p_node);
 			_collect_inlay_hints_from_node(match_node->test, p_lines, r_hints);
 			for (int i = 0; i < match_node->branches.size(); i++) {
-				if (match_node->branches[i]->block) {
+				if (match_node->branches[i] && match_node->branches[i]->block) {
 					_collect_inlay_hints_from_node(match_node->branches[i]->block, p_lines, r_hints);
 				}
 			}

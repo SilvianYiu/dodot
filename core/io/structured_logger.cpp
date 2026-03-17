@@ -126,6 +126,8 @@ void StructuredLogger::logv(const char *p_format, va_list p_list, bool p_err) {
 		return;
 	}
 
+	MutexLock lock(mutex);
+
 	String json = "{\"type\":\"";
 	json += p_err ? "warning" : "info";
 	json += "\",\"timestamp\":\"";
@@ -134,7 +136,6 @@ void StructuredLogger::logv(const char *p_format, va_list p_list, bool p_err) {
 	json += _escape_json_string(message);
 	json += "\"}";
 
-	MutexLock lock(mutex);
 	_emit_json_line(json, p_err);
 }
 

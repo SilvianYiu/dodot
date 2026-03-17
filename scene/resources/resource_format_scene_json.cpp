@@ -497,69 +497,106 @@ Variant SceneJSONVariant::json_to_variant(const Variant &p_json, const HashMap<S
 
 		String type = d["_type"];
 
+		// Helper lambda to safely read a numeric field from a dictionary.
+#define SCENE_JSON_GET_NUM(dict, key) ((dict).has((key)) ? (double)(dict)[(key)] : 0.0)
+
 		if (type == "StringName") {
-			return StringName(String(d["value"]));
+			return StringName(String(d.get("value", "")));
 		} else if (type == "Vector2") {
-			return Vector2(d["x"], d["y"]);
+			return Vector2(SCENE_JSON_GET_NUM(d, "x"), SCENE_JSON_GET_NUM(d, "y"));
 		} else if (type == "Vector2i") {
-			return Vector2i(d["x"], d["y"]);
+			return Vector2i(SCENE_JSON_GET_NUM(d, "x"), SCENE_JSON_GET_NUM(d, "y"));
 		} else if (type == "Vector3") {
-			return Vector3(d["x"], d["y"], d["z"]);
+			return Vector3(SCENE_JSON_GET_NUM(d, "x"), SCENE_JSON_GET_NUM(d, "y"), SCENE_JSON_GET_NUM(d, "z"));
 		} else if (type == "Vector3i") {
-			return Vector3i(d["x"], d["y"], d["z"]);
+			return Vector3i(SCENE_JSON_GET_NUM(d, "x"), SCENE_JSON_GET_NUM(d, "y"), SCENE_JSON_GET_NUM(d, "z"));
 		} else if (type == "Vector4") {
-			return Vector4(d["x"], d["y"], d["z"], d["w"]);
+			return Vector4(SCENE_JSON_GET_NUM(d, "x"), SCENE_JSON_GET_NUM(d, "y"), SCENE_JSON_GET_NUM(d, "z"), SCENE_JSON_GET_NUM(d, "w"));
 		} else if (type == "Vector4i") {
-			return Vector4i(d["x"], d["y"], d["z"], d["w"]);
+			return Vector4i(SCENE_JSON_GET_NUM(d, "x"), SCENE_JSON_GET_NUM(d, "y"), SCENE_JSON_GET_NUM(d, "z"), SCENE_JSON_GET_NUM(d, "w"));
 		} else if (type == "Rect2") {
-			return Rect2(d["x"], d["y"], d["w"], d["h"]);
+			return Rect2(SCENE_JSON_GET_NUM(d, "x"), SCENE_JSON_GET_NUM(d, "y"), SCENE_JSON_GET_NUM(d, "w"), SCENE_JSON_GET_NUM(d, "h"));
 		} else if (type == "Rect2i") {
-			return Rect2i(d["x"], d["y"], d["w"], d["h"]);
+			return Rect2i(SCENE_JSON_GET_NUM(d, "x"), SCENE_JSON_GET_NUM(d, "y"), SCENE_JSON_GET_NUM(d, "w"), SCENE_JSON_GET_NUM(d, "h"));
 		} else if (type == "Color") {
-			return Color(d["r"], d["g"], d["b"], d["a"]);
+			return Color(SCENE_JSON_GET_NUM(d, "r"), SCENE_JSON_GET_NUM(d, "g"), SCENE_JSON_GET_NUM(d, "b"), SCENE_JSON_GET_NUM(d, "a"));
 		} else if (type == "Transform2D") {
 			Transform2D t;
+			if (!d.has("columns") || d["columns"].get_type() != Variant::ARRAY) {
+				WARN_PRINT("Malformed Transform2D: missing 'columns' array.");
+				return t;
+			}
 			Array cols = d["columns"];
 			for (int i = 0; i < 3 && i < cols.size(); i++) {
+				if (cols[i].get_type() != Variant::DICTIONARY) {
+					continue;
+				}
 				Dictionary col = cols[i];
-				t.columns[i] = Vector2(col["x"], col["y"]);
+				t.columns[i] = Vector2(SCENE_JSON_GET_NUM(col, "x"), SCENE_JSON_GET_NUM(col, "y"));
 			}
 			return t;
 		} else if (type == "Basis") {
 			Basis b;
+			if (!d.has("rows") || d["rows"].get_type() != Variant::ARRAY) {
+				WARN_PRINT("Malformed Basis: missing 'rows' array.");
+				return b;
+			}
 			Array rows = d["rows"];
 			for (int i = 0; i < 3 && i < rows.size(); i++) {
+				if (rows[i].get_type() != Variant::DICTIONARY) {
+					continue;
+				}
 				Dictionary row = rows[i];
-				b.rows[i] = Vector3(row["x"], row["y"], row["z"]);
+				b.rows[i] = Vector3(SCENE_JSON_GET_NUM(row, "x"), SCENE_JSON_GET_NUM(row, "y"), SCENE_JSON_GET_NUM(row, "z"));
 			}
 			return b;
 		} else if (type == "Transform3D") {
 			Transform3D t;
+			if (!d.has("basis") || d["basis"].get_type() != Variant::DICTIONARY) {
+				WARN_PRINT("Malformed Transform3D: missing 'basis' dictionary.");
+				return t;
+			}
 			Dictionary basis = d["basis"];
+			if (!basis.has("rows") || basis["rows"].get_type() != Variant::ARRAY) {
+				WARN_PRINT("Malformed Transform3D: missing 'basis.rows' array.");
+				return t;
+			}
 			Array rows = basis["rows"];
 			for (int i = 0; i < 3 && i < rows.size(); i++) {
+				if (rows[i].get_type() != Variant::DICTIONARY) {
+					continue;
+				}
 				Dictionary row = rows[i];
-				t.basis.rows[i] = Vector3(row["x"], row["y"], row["z"]);
+				t.basis.rows[i] = Vector3(SCENE_JSON_GET_NUM(row, "x"), SCENE_JSON_GET_NUM(row, "y"), SCENE_JSON_GET_NUM(row, "z"));
 			}
-			Dictionary origin = d["origin"];
-			t.origin = Vector3(origin["x"], origin["y"], origin["z"]);
+			if (d.has("origin") && d["origin"].get_type() == Variant::DICTIONARY) {
+				Dictionary origin = d["origin"];
+				t.origin = Vector3(SCENE_JSON_GET_NUM(origin, "x"), SCENE_JSON_GET_NUM(origin, "y"), SCENE_JSON_GET_NUM(origin, "z"));
+			}
 			return t;
 		} else if (type == "Quaternion") {
-			return Quaternion(d["x"], d["y"], d["z"], d["w"]);
+			return Quaternion(SCENE_JSON_GET_NUM(d, "x"), SCENE_JSON_GET_NUM(d, "y"), SCENE_JSON_GET_NUM(d, "z"), SCENE_JSON_GET_NUM(d, "w"));
 		} else if (type == "AABB") {
-			return AABB(Vector3(d["px"], d["py"], d["pz"]), Vector3(d["sx"], d["sy"], d["sz"]));
+			return AABB(Vector3(SCENE_JSON_GET_NUM(d, "px"), SCENE_JSON_GET_NUM(d, "py"), SCENE_JSON_GET_NUM(d, "pz")), Vector3(SCENE_JSON_GET_NUM(d, "sx"), SCENE_JSON_GET_NUM(d, "sy"), SCENE_JSON_GET_NUM(d, "sz")));
 		} else if (type == "Plane") {
-			return Plane(Vector3(d["x"], d["y"], d["z"]), (real_t)(double)d["d"]);
+			return Plane(Vector3(SCENE_JSON_GET_NUM(d, "x"), SCENE_JSON_GET_NUM(d, "y"), SCENE_JSON_GET_NUM(d, "z")), (real_t)SCENE_JSON_GET_NUM(d, "d"));
 		} else if (type == "Projection") {
 			Projection proj;
+			if (!d.has("columns") || d["columns"].get_type() != Variant::ARRAY) {
+				WARN_PRINT("Malformed Projection: missing 'columns' array.");
+				return proj;
+			}
 			Array cols = d["columns"];
 			for (int i = 0; i < 4 && i < cols.size(); i++) {
+				if (cols[i].get_type() != Variant::DICTIONARY) {
+					continue;
+				}
 				Dictionary col = cols[i];
-				proj.columns[i] = Vector4(col["x"], col["y"], col["z"], col["w"]);
+				proj.columns[i] = Vector4(SCENE_JSON_GET_NUM(col, "x"), SCENE_JSON_GET_NUM(col, "y"), SCENE_JSON_GET_NUM(col, "z"), SCENE_JSON_GET_NUM(col, "w"));
 			}
 			return proj;
 		} else if (type == "NodePath") {
-			return NodePath(String(d["path"]));
+			return NodePath(String(d.get("path", "")));
 		} else if (type == "RID") {
 			return RID(); // RIDs are runtime-only, cannot restore.
 		} else if (type == "ExtResource" || type == "SubResource") {
@@ -624,39 +661,51 @@ Variant SceneJSONVariant::json_to_variant(const Variant &p_json, const HashMap<S
 			}
 			return arr;
 		} else if (type == "PackedVector2Array") {
-			Array vals = d["data"];
+			Array vals = d.get("data", Array());
 			PackedVector2Array arr;
 			arr.resize(vals.size());
 			for (int i = 0; i < vals.size(); i++) {
+				if (vals[i].get_type() != Variant::DICTIONARY) {
+					continue;
+				}
 				Dictionary v = vals[i];
-				arr.set(i, Vector2(v["x"], v["y"]));
+				arr.set(i, Vector2(SCENE_JSON_GET_NUM(v, "x"), SCENE_JSON_GET_NUM(v, "y")));
 			}
 			return arr;
 		} else if (type == "PackedVector3Array") {
-			Array vals = d["data"];
+			Array vals = d.get("data", Array());
 			PackedVector3Array arr;
 			arr.resize(vals.size());
 			for (int i = 0; i < vals.size(); i++) {
+				if (vals[i].get_type() != Variant::DICTIONARY) {
+					continue;
+				}
 				Dictionary v = vals[i];
-				arr.set(i, Vector3(v["x"], v["y"], v["z"]));
+				arr.set(i, Vector3(SCENE_JSON_GET_NUM(v, "x"), SCENE_JSON_GET_NUM(v, "y"), SCENE_JSON_GET_NUM(v, "z")));
 			}
 			return arr;
 		} else if (type == "PackedColorArray") {
-			Array vals = d["data"];
+			Array vals = d.get("data", Array());
 			PackedColorArray arr;
 			arr.resize(vals.size());
 			for (int i = 0; i < vals.size(); i++) {
+				if (vals[i].get_type() != Variant::DICTIONARY) {
+					continue;
+				}
 				Dictionary c = vals[i];
-				arr.set(i, Color(c["r"], c["g"], c["b"], c["a"]));
+				arr.set(i, Color(SCENE_JSON_GET_NUM(c, "r"), SCENE_JSON_GET_NUM(c, "g"), SCENE_JSON_GET_NUM(c, "b"), SCENE_JSON_GET_NUM(c, "a")));
 			}
 			return arr;
 		} else if (type == "PackedVector4Array") {
-			Array vals = d["data"];
+			Array vals = d.get("data", Array());
 			PackedVector4Array arr;
 			arr.resize(vals.size());
 			for (int i = 0; i < vals.size(); i++) {
+				if (vals[i].get_type() != Variant::DICTIONARY) {
+					continue;
+				}
 				Dictionary v = vals[i];
-				arr.set(i, Vector4(v["x"], v["y"], v["z"], v["w"]));
+				arr.set(i, Vector4(SCENE_JSON_GET_NUM(v, "x"), SCENE_JSON_GET_NUM(v, "y"), SCENE_JSON_GET_NUM(v, "z"), SCENE_JSON_GET_NUM(v, "w")));
 			}
 			return arr;
 		}
@@ -664,6 +713,8 @@ Variant SceneJSONVariant::json_to_variant(const Variant &p_json, const HashMap<S
 		// Unknown typed dictionary — return as-is.
 		return d;
 	}
+
+#undef SCENE_JSON_GET_NUM
 
 	return p_json;
 }
@@ -863,7 +914,7 @@ Error ResourceFormatSaverSceneJSON::save(const Ref<Resource> &p_resource, const 
 	fa->store_string(json_str);
 	fa->store_8('\n');
 
-	return fa->get_error() != OK && fa->get_error() != ERR_FILE_EOF ? ERR_CANT_CREATE : OK;
+	return fa->get_error() != OK ? ERR_CANT_CREATE : OK;
 }
 
 void ResourceFormatSaverSceneJSON::get_recognized_extensions(const Ref<Resource> &p_resource, List<String> *p_extensions) const {
@@ -940,7 +991,11 @@ Ref<Resource> ResourceFormatLoaderSceneJSON::load(const String &p_path, const St
 			if (res.is_valid()) {
 				all_resources[id] = res;
 			} else {
-				WARN_PRINT(vformat("Failed to load external resource '%s' (id: %s) in '%s'.", path, id, p_path));
+				ERR_PRINT(vformat("Failed to load external resource '%s' (id: %s) in '%s'.", path, id, p_path));
+				if (r_error) {
+					*r_error = ERR_FILE_MISSING_DEPENDENCIES;
+				}
+				return Ref<Resource>();
 			}
 		}
 	}

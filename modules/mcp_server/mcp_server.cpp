@@ -196,6 +196,7 @@ void MCPServer::poll(int p_limit_usec) {
 // =============================================================================
 
 void MCPServer::_poll_websocket() {
+	MutexLock lock(mutex);
 	while (tcp_server.is_valid() && tcp_server->is_connection_available()) {
 		Ref<StreamPeerTCP> tcp_peer = tcp_server->take_connection();
 		if (tcp_peer.is_valid()) {
@@ -250,9 +251,15 @@ void MCPServer::_poll_websocket() {
 
 void MCPServer::_poll_stdio() {
 #ifndef _WIN32
+	static const int MAX_STDIN_BUFFER = 100 * 1024 * 1024; // 100 MB.
 	char buf[4096];
 	ssize_t n = read(STDIN_FILENO, buf, sizeof(buf));
 	if (n > 0) {
+		if (stdin_buffer.length() + n > MAX_STDIN_BUFFER) {
+			ERR_PRINT("MCP stdio buffer exceeded 100MB limit, clearing.");
+			stdin_buffer = String();
+			return;
+		}
 		stdin_buffer += String::utf8(buf, n);
 	}
 #else
@@ -603,9 +610,14 @@ Dictionary MCPServer::_handle_resources_read(const Dictionary &p_params, const V
 		const Variant *argv[1] = { &uri_var };
 		Callable::CallError call_err;
 		resource.handler.callp(argv, 1, ret, call_err);
-		if (call_err.error == Callable::CallError::CALL_OK) {
-			resource_result = ret;
+		if (call_err.error != Callable::CallError::CALL_OK) {
+			Dictionary error_obj;
+			error_obj["code"] = -32603;
+			error_obj["message"] = "Resource handler execution error for: " + uri;
+			response["error"] = error_obj;
+			return response;
 		}
+		resource_result = ret;
 	}
 
 	response["result"] = resource_result;
@@ -664,9 +676,14 @@ Dictionary MCPServer::_handle_prompts_get(const Dictionary &p_params, const Vari
 		const Variant *argv[1] = { &args_var };
 		Callable::CallError call_err;
 		prompt.handler.callp(argv, 1, ret, call_err);
-		if (call_err.error == Callable::CallError::CALL_OK) {
-			prompt_result = ret;
+		if (call_err.error != Callable::CallError::CALL_OK) {
+			Dictionary error_obj;
+			error_obj["code"] = -32603;
+			error_obj["message"] = "Prompt handler execution error for: " + prompt_name;
+			response["error"] = error_obj;
+			return response;
 		}
+		prompt_result = ret;
 	}
 
 	response["result"] = prompt_result;
@@ -678,6 +695,8 @@ Dictionary MCPServer::_handle_prompts_get(const Dictionary &p_params, const Vari
 // =============================================================================
 
 void MCPServer::register_tool(const String &p_name, const String &p_description, const Dictionary &p_input_schema, const Callable &p_handler) {
+	ERR_FAIL_COND_MSG(p_name.is_empty(), "Tool name cannot be empty.");
+	ERR_FAIL_COND_MSG(!p_handler.is_valid(), vformat("Tool handler for '%s' is not valid.", p_name));
 	MCPToolDef tool;
 	tool.name = p_name;
 	tool.description = p_description;
@@ -703,6 +722,8 @@ TypedArray<Dictionary> MCPServer::get_tool_list() const {
 }
 
 void MCPServer::register_resource(const String &p_uri, const String &p_name, const String &p_description, const String &p_mime_type, const Callable &p_handler) {
+	ERR_FAIL_COND_MSG(p_uri.is_empty(), "Resource URI cannot be empty.");
+	ERR_FAIL_COND_MSG(!p_handler.is_valid(), vformat("Resource handler for '%s' is not valid.", p_uri));
 	MCPResourceDef resource;
 	resource.uri = p_uri;
 	resource.name = p_name;
@@ -717,6 +738,8 @@ void MCPServer::unregister_resource(const String &p_uri) {
 }
 
 void MCPServer::register_prompt(const String &p_name, const String &p_description, const Array &p_arguments, const Callable &p_handler) {
+	ERR_FAIL_COND_MSG(p_name.is_empty(), "Prompt name cannot be empty.");
+	ERR_FAIL_COND_MSG(!p_handler.is_valid(), vformat("Prompt handler for '%s' is not valid.", p_name));
 	MCPPromptDef prompt;
 	prompt.name = p_name;
 	prompt.description = p_description;
