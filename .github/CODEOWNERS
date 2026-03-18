@@ -2,6 +2,10 @@
 # Each line is a file pattern followed by one or more owners.
 # Owners can be @users, @org/teams or emails.
 
+# Demo
+
+/demo/                                        @SilvianYiu
+
 # Core
 
 /core/                                        @godotengine/core
@@ -177,6 +181,10 @@
 /modules/openxr/editor/                       @godotengine/xr @godotengine/editor
 /modules/webxr/                               @godotengine/xr
 /modules/webxr/doc_classes/                   @godotengine/xr @godotengine/documentation
+
+## Dodot
+/modules/mcp_server/                          @SilvianYiu
+/modules/gdtest/                              @SilvianYiu
 
 ## Misc
 /modules/register_module_types.*              @godotengine/buildsystem
