@@ -40,7 +40,7 @@ jobs:
       - name: Install dependencies
         run: brew install scons
       - name: Build editor
-        run: scons platform=macos target=editor module_mcp_server_enabled=yes module_gdtest_enabled=yes -j$(sysctl -n hw.logicalcpu)
+        run: scons platform=macos target=editor module_mcp_server_enabled=yes module_gdtest_enabled=yes vulkan=no -j$(sysctl -n hw.logicalcpu)
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
@@ -55,7 +55,7 @@ jobs:
         run: pip install scons
       - name: Build editor
         shell: bash
-        run: scons platform=windows target=editor module_mcp_server_enabled=yes module_gdtest_enabled=yes -j$NUMBER_OF_PROCESSORS
+        run: scons platform=windows target=editor module_mcp_server_enabled=yes module_gdtest_enabled=yes d3d12=no accesskit=no -j$NUMBER_OF_PROCESSORS
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
